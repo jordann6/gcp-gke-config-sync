@@ -97,18 +97,30 @@ you can check against a repo instead of assembling from memory.
 
 **Act 2: drift, corrected.** Delete `resourcequota/team-a-quota`. Nothing stops
 you. The object is genuinely gone and the cluster genuinely does not match Git.
-Roughly fifteen seconds later it is back. The act times it and then says the
-uncomfortable part out loud: for those seconds the quota did not exist, and any
-pod admitted in that window was admitted without it.
+It comes back in about five seconds, not the fifteen the poll interval would
+suggest: Config Sync holds a watch on the objects it manages, so a deletion is
+observed rather than waited for, and `sync_wait_secs` is the ceiling on noticing
+a change in Git rather than a change in the cluster. The act times it and then
+says the uncomfortable part out loud: for those seconds the quota did not exist,
+and any pod admitted in that window was admitted without it.
 
 **Act 3: the same drift, refused.** Set `prevent_drift = true`, which installs
 the Config Sync admission webhook, and run the identical delete. It is rejected.
 The delete never reaches etcd, so there is no window to measure. One boolean is
 the difference between a config management tool and a control.
 
-**Act 4: a privileged container.** Rejected by `deny-privileged-containers`. The
-image was approved and the namespace was correct; the only thing wrong was
-`securityContext.privileged`, and it never reached the API server.
+**Act 4: a privileged container, and which controller catches it.** The pod is
+refused, and not by the constraint you would expect. Pod Security Admission is
+built into the API server and runs ahead of every validating webhook, so
+`enforce: baseline` on the namespace rejects the pod and Gatekeeper is never
+consulted. `deny-privileged-containers` is loaded and enforcing; it simply never
+gets asked.
+
+The act was originally written to assert that the denial would name the
+constraint. It does not, and finding that out on a live cluster was worth more
+than the assertion. The useful consequence: deleting the constraint entirely
+would not change this act's output, which means this test cannot tell you
+whether Policy Controller is working. Act 5 can.
 
 **Act 5: an unapproved registry.** A pod pulling from Docker Hub is rejected by
 `approved-image-sources`. Worth noticing that this is a refusal at write time,

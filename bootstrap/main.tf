@@ -31,6 +31,13 @@ locals {
   # naming the seed, which is a project you are not building anything in. That
   # mismatch between the error and the intent is what makes it cost an hour.
   seed_apis = [
+    # See the note in ../terraform/project.tf. These two are still named for a
+    # product tier that no longer exists, and they are the APIs the Config Sync
+    # and Policy Controller fleet features are served from. They are here as
+    # well as in the workload project because the seed is the quota project, and
+    # Google requires an API to be enabled on both.
+    "anthosconfigmanagement.googleapis.com",
+    "anthospolicycontroller.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbilling.googleapis.com",
     "cloudresourcemanager.googleapis.com",

@@ -50,7 +50,33 @@ webhook_present() {
     grep -qi 'configsync'
 }
 
+# Fail fast on the one missing dependency that otherwise looks like a broken
+# cluster.
+#
+# kubectl talks to GKE through gke-gcloud-auth-plugin, which is a separate
+# gcloud component and is not installed by default. Without it every kubectl
+# call fails with an exec error rather than a connection error, and the wait
+# loop below, which tolerates a not-yet-ready cluster by design, swallows those
+# for ten minutes and then reports that Config Sync never synced. The cluster is
+# fine. Nothing ever reached it.
+require_auth_plugin() {
+  if command -v gke-gcloud-auth-plugin >/dev/null 2>&1; then
+    return 0
+  fi
+  fail "gke-gcloud-auth-plugin is not on PATH"
+  note "kubectl cannot authenticate to GKE without it, and the failure looks"
+  note "like an unreachable cluster rather than a missing binary."
+  note ""
+  note "  gcloud components install gke-gcloud-auth-plugin"
+  note ""
+  note "If gcloud was installed with Homebrew, components install may be"
+  note "disabled, in which case:"
+  note "  brew install --cask google-cloud-sdk-gke-gcloud-auth-plugin"
+  return 1
+}
+
 cmd_env() {
+  require_auth_plugin || return 1
   rule "Rendering ${ENV_FILE}"
   terraform -chdir="${TF_DIR}" output -raw demo_env >"${ENV_FILE}"
   note "wrote $(grep -c '=' "${ENV_FILE}") variables"
@@ -242,14 +268,37 @@ cmd_act3() {
   note "restored"
 }
 
-# Act 4. Admission control on what a pod may be, not on who is asking.
+# Act 4. Two admission controllers with the same opinion, and which one gets
+# there first.
+#
+# This act originally asserted that the denial would name
+# deny-privileged-containers. It does not, and the reason is worth more than the
+# assertion was.
+#
+# Pod Security Admission is built into the API server and runs in the admission
+# chain BEFORE any validating webhook. The namespaces in config/namespaces carry
+# pod-security.kubernetes.io/enforce: baseline, and baseline's definition of
+# forbidden starts with privileged containers. So PSA refuses the pod and
+# Gatekeeper is never consulted.
+#
+# The two controls are genuinely redundant here, which is the intent: PSA cannot
+# be disabled by deleting a CRD, and Policy Controller covers rules PSA has no
+# vocabulary for. But redundancy means the outer layer answers, and a demo that
+# insists on hearing from the inner one is asserting something about ordering
+# that is not true.
+#
+# So the act asserts the pod is refused and reports which layer refused it.
+# Act 5 is where Gatekeeper speaks, because approving image registries is
+# something PSA has no opinion about at all.
 cmd_act4() {
   load_env
-  rule "Act 4. A privileged container"
+  rule "Act 4. A privileged container, and which controller catches it"
 
-  note "constraint: deny-privileged-containers (K8sPSPPrivilegedContainer)"
+  note "two controls apply to this namespace, in this order:"
+  note "  1. Pod Security Admission, built into the API server, enforce=baseline"
+  note "  2. Policy Controller, a validating webhook, deny-privileged-containers"
   kubectl get k8spsprivilegedcontainer deny-privileged-containers \
-    -o jsonpath='{"      enforcementAction: "}{.spec.enforcementAction}{"\n"}' 2>/dev/null || true
+    -o jsonpath='{"      constraint enforcementAction: "}{.spec.enforcementAction}{"\n"}' 2>/dev/null || true
 
   local out rc=0
   out="$(kubectl apply -n team-a -f - <<'EOF' 2>&1
@@ -266,25 +315,39 @@ spec:
 EOF
   )" || rc=$?
 
-  if [ "${rc}" -ne 0 ] && printf '%s' "${out}" | grep -qi "deny-privileged-containers"; then
-    pass "rejected by the named constraint"
-    printf '%s\n' "${out}" | fold -w 100 | sed 's/^/      /' | head -8
-  elif [ "${rc}" -eq 0 ]; then
-    fail "the pod was ADMITTED. Policy Controller is not enforcing."
+  if [ "${rc}" -eq 0 ]; then
+    fail "the pod was ADMITTED. Neither control is enforcing."
     kubectl delete pod privileged-probe -n team-a --ignore-not-found >/dev/null 2>&1
-    note "check that the constraint exists and its template installed:"
-    note "  kubectl get constrainttemplates"
+    note "check both:"
+    note "  kubectl get ns team-a -o jsonpath='{.metadata.labels}'"
     note "  kubectl get k8spsprivilegedcontainer"
-    return 1
-  else
-    fail "rejected, but not by this constraint:"
-    printf '%s\n' "${out}" | sed 's/^/      /' | head -10
     return 1
   fi
 
-  note ""
-  note "the image was approved and the namespace was correct. The only thing"
-  note "wrong was securityContext.privileged, and it never reached the API."
+  printf '%s\n' "${out}" | fold -w 100 | sed 's/^/      /' | head -6
+
+  if printf '%s' "${out}" | grep -qi "PodSecurity"; then
+    pass "refused by Pod Security Admission, the outer layer"
+    note ""
+    note "Gatekeeper never saw this request. PSA runs inside the API server,"
+    note "ahead of every validating webhook, so the outer control answers and"
+    note "the inner one is not consulted. deny-privileged-containers is loaded"
+    note "and enforcing; it simply never gets asked about a pod that PSA has"
+    note "already rejected."
+    note ""
+    note "That ordering is the useful thing to know. Removing the constraint"
+    note "would not change this output, which means this test cannot tell you"
+    note "whether Policy Controller is working. Act 5 can, because approving"
+    note "image registries is something PSA has no vocabulary for."
+  elif printf '%s' "${out}" | grep -qi "deny-privileged-containers"; then
+    pass "refused by the Policy Controller constraint"
+    note ""
+    note "PSA did not catch this one, so the webhook was consulted and refused."
+    note "Check whether the namespace still carries its pod-security labels."
+  else
+    fail "refused, but by neither expected control. Read it before moving on."
+    return 1
+  fi
 }
 
 # Act 5. Where images may come from.

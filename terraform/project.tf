@@ -2,6 +2,17 @@ locals {
   workload_project_id = "${var.name_prefix}-${var.workload_name_suffix}"
 
   workload_apis = [
+    # The two anthos* APIs still carry that name even though the GKE Enterprise
+    # tier they were named for was dissolved in September 2025 and the features
+    # are now included in base GKE. Enabling them costs nothing and grants
+    # nothing; they are the API surfaces the fleet features are served from.
+    #
+    # gkehub.googleapis.com is not enough on its own, and the failure is a
+    # 400 "failed precondition" on google_gke_hub_feature that names the missing
+    # API but arrives 15 minutes into an apply, after the cluster is already
+    # built. Both of these belong in the list from the start.
+    "anthosconfigmanagement.googleapis.com",
+    "anthospolicycontroller.googleapis.com",
     "artifactregistry.googleapis.com",
     "compute.googleapis.com",
     "container.googleapis.com",
