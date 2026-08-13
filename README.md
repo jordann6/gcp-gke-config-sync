@@ -160,6 +160,38 @@ Expect 15 to 20 minutes. The cluster itself is about 8, and the first Config
 Sync reconcile is another 2 to 4 on top, because the fleet feature has to
 install the reconciler before the reconciler can clone anything.
 
+### If `terraform init` says the state bucket does not exist
+
+It probably does exist. Check what your Application Default Credentials are
+using as a quota project:
+
+```bash
+grep quota_project_id ~/.config/gcloud/application_default_credentials.json
+```
+
+ADC stores a quota project, `gcloud auth application-default login` sets it to
+whatever project you were working in at the time, and it is sticky. The GCS
+backend attaches it to every API call as `x-goog-user-project`. If that project
+has since been deleted, the call comes back 404 "The requested project was not
+found", and Terraform surfaces it as:
+
+    Error: Failed to get existing workspaces: querying Cloud Storage failed:
+    storage: bucket doesn't exist
+
+Which names the wrong object entirely. The bucket is fine and readable; the
+project being billed for the read is gone. This is easy to hit in this
+portfolio specifically, because every build here ends by deleting its projects,
+so ADC is routinely left pointing at a project that no longer exists.
+
+```bash
+gcloud auth application-default set-quota-project SEED_PROJECT_ID
+```
+
+Worth knowing that `gcloud storage ls` on the same bucket succeeds throughout,
+because the gcloud CLI uses its own credentials rather than ADC. Two tools, two
+credential paths, one of them broken, and the one that works is the one you
+reach for to check.
+
 ## Cost
 
 | | per hour | if left up for a month |
