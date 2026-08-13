@@ -1,0 +1,135 @@
+name: Guardrails
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# This repo has a property the other portfolio builds do not: merging to main is
+# the deploy. Config Sync polls the branch head every 15 seconds and applies
+# whatever is under config/. There is no apply step to catch a mistake at, no
+# plan to read, and no approval gate between the merge button and the cluster.
+#
+# So the checks below are not advisory. The config job in particular is the only
+# thing standing between a malformed manifest and a reconciler that wedges on
+# it, which is why it validates the manifests rather than just linting them.
+
+jobs:
+  # The credentialed plan job from platform-guardrails is deliberately absent.
+  # tf-plan.yml authenticates through an AWS OIDC role, and forcing a GCP repo
+  # into it would put two clouds' auth paths in one shared workflow. The static
+  # half is cloud-agnostic and does the work that matters on a pull request:
+  # fmt, validate, tflint, Checkov, Trivy config, and gitleaks over full history.
+  #
+  # No checkov_baseline, because there is nothing to baseline. Checkov passes
+  # clean on both directories, and the five suppressions are inline
+  # `checkov:skip` comments on the resources they apply to, each with the reason
+  # written next to the code it excuses. A baseline file moves that reasoning
+  # into a JSON blob nobody reads on review, and it silently absorbs the next
+  # finding too.
+  static:
+    uses: jordann6/platform-guardrails/.github/workflows/tf-ci.yml@v1
+    with:
+      terraform_dir: terraform
+      skip_policy: true
+
+  bootstrap:
+    uses: jordann6/platform-guardrails/.github/workflows/tf-ci.yml@v1
+    with:
+      terraform_dir: bootstrap
+      skip_policy: true
+
+  # skip_policy above turns off the shared AWS-shaped rule set. These are the
+  # GKE equivalents, and they run here rather than in the shared workflow
+  # because they are specific to this repo's failure modes.
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install conftest
+        run: |
+          set -euo pipefail
+          VERSION=0.56.0
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz" |
+            tar xz -C /usr/local/bin conftest
+
+      # --combine is not optional and its absence is silent.
+      #
+      # Without it, conftest evaluates each file on its own and sets input to
+      # that file's parsed document. The rules here start with
+      # `some file in input; file.contents.resource`, which is the shape
+      # conftest only produces when combining, so every rule matches nothing,
+      # returns no violations, and reports a confident pass. The run is green
+      # and the policy never executed.
+      #
+      # There is a negative fixture in policy/fixtures/ for exactly this: it is
+      # a Terraform file that must fail. If the policy ever goes vacuous again,
+      # that step turns red instead of everything turning green.
+      - name: conftest terraform
+        run: conftest test --policy policy --all-namespaces --combine terraform/*.tf
+
+      - name: conftest bootstrap
+        run: conftest test --policy policy --all-namespaces --combine bootstrap/*.tf
+
+      - name: Prove the policy is not vacuous
+        run: |
+          set -euo pipefail
+          if conftest test --policy policy --all-namespaces --combine \
+               policy/fixtures/violations.tf >/dev/null 2>&1; then
+            echo "::error::the negative fixture PASSED, which means the rules are matching nothing"
+            exit 1
+          fi
+          echo "negative fixture correctly fails"
+
+  # The gate on the directory the cluster actually reads.
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          VERSION=0.6.7
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/v${VERSION}/kubeconform-linux-amd64.tar.gz" |
+            tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate manifests against the Kubernetes schema
+        # -ignore-missing-schemas rather than a failure, because ConstraintTemplate
+        # and the constraint kinds are CRDs that Policy Controller installs on the
+        # cluster. Their schemas do not exist in the upstream schema set and never
+        # will. Everything with a built-in schema is still checked strictly.
+        #
+        # -strict rejects unknown fields, which is what catches the typo that
+        # would otherwise apply cleanly and do nothing.
+        run: |
+          kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.31.0 \
+            -summary \
+            -verbose \
+            $(find config -name '*.yaml')
+
+      - name: Check every constraint declares an enforcement action
+        # A Constraint with no enforcementAction defaults to deny. That default
+        # is the safe one for the cluster and the dangerous one for a rollout,
+        # because it means a constraint merged without thinking about it starts
+        # refusing writes immediately. Make the choice explicit in the file.
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in config/constraints/*.yaml; do
+            kind=$(grep -m1 '^kind:' "$f" | awk '{print $2}')
+            [ "$kind" = "ConstraintTemplate" ] && continue
+            if ! grep -q 'enforcementAction:' "$f"; then
+              echo "::error file=$f::constraint does not set enforcementAction (defaults to deny)"
+              missing=1
+            fi
+          done
+          exit $missing

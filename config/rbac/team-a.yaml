@@ -1,0 +1,60 @@
+# What team-a can do inside its own namespace, and nothing outside it.
+#
+# A Role rather than a ClusterRole, bound with a RoleBinding rather than a
+# ClusterRoleBinding. The distinction is the whole tenancy model: a ClusterRole
+# bound cluster-wide reads every Secret in every namespace, and it is the
+# easiest mistake to make because the edit is one word and the plan looks
+# identical.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team-a-developer
+  namespace: team-a
+rules:
+  - apiGroups: ["", "apps", "batch"]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - configmaps
+      - deployments
+      - replicasets
+      - statefulsets
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+
+  # Read only, on purpose, and this is the part that surprises people.
+  #
+  # Write access here would be pointless rather than dangerous: Config Sync owns
+  # every object it applied, so a developer who edits a managed Deployment has
+  # the change reverted on the next poll, or refused outright when prevent_drift
+  # is on. The path to changing a workload is a pull request against config/.
+  # Granting write would only produce a confusing experience where kubectl
+  # reports success and nothing changes.
+
+  # Exec and port-forward are the exception, because debugging a running pod is
+  # not a configuration change and there is no Git-shaped way to do it.
+  - apiGroups: [""]
+    resources:
+      - pods/exec
+      - pods/portforward
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: team-a-developer
+  namespace: team-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: team-a-developer
+subjects:
+  # Replace with a real Google group. A group rather than named users, so
+  # joining and leaving the team is an identity change rather than a pull
+  # request against this file. Binding individual users here is how RBAC becomes
+  # a list of people who left two years ago.
+  - kind: Group
+    name: team-a@example.com
+    apiGroup: rbac.authorization.k8s.io

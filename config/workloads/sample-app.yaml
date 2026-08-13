@@ -1,0 +1,59 @@
+# A workload that exists to be imperfect.
+#
+# It satisfies the two constraints set to deny: the image comes from
+# registry.k8s.io, which approved-image-sources allows, and it does not ask for
+# privilege. It violates the one set to dryrun, because the image is referenced
+# by tag rather than by digest.
+#
+# That is the realistic starting state of any cluster someone is introducing
+# policy to. There is already something running, it was fine under the old
+# rules, and the question is what turning the new rule on would break. Act 6 of
+# the demo answers that by reading the violation off the constraint instead of
+# by finding out during a deploy.
+#
+# registry.k8s.io/pause is the smallest useful container image there is. It
+# starts, it sits there, it reserves no meaningful resources, and it costs
+# nothing to run for an afternoon.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  namespace: team-a
+  labels:
+    app: sample-app
+    owner: team-a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+        owner: team-a
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65535
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Explicit rather than inherited from the LimitRange. The LimitRange
+          # is there to stop an unset request from failing the quota, not to be
+          # the place workloads declare what they need.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

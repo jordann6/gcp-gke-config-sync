@@ -1,0 +1,28 @@
+# The constraint that is deliberately not enforcing.
+#
+# dryrun admits the object and records the violation on this constraint's
+# status. Reading it answers the question you cannot answer any other way:
+# what would turning this on actually break.
+#
+# The sample app in config/workloads is the answer here, because it references
+# registry.k8s.io/pause by tag. Act 6 of the demo reads that violation back.
+#
+# Promoting this to deny is a one-word diff and a pull request. That is the
+# ratchet: dryrun, read the violations, fix or exempt each one, then enforce.
+# Every constraint in this repo should arrive that way, including the two that
+# are now on deny.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireImageDigest
+metadata:
+  name: pin-images-to-digests
+spec:
+  enforcementAction: dryrun
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces:
+      - team-a
+      - platform
+  parameters:
+    exemptImages: []

@@ -1,0 +1,40 @@
+# The object the demo deletes in act 2, chosen because deleting a quota is the
+# realistic version of the mistake. Nobody deletes a namespace by accident. They
+# delete the thing that is blocking their deploy at 6pm, intending to put it
+# back.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-a-quota
+  namespace: team-a
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "20"
+    persistentvolumeclaims: "4"
+    services.loadbalancers: "0"
+---
+# A quota on requests.cpu makes the API server reject any pod in this namespace
+# that does not set a request, which turns a resource control into a broken
+# namespace unless something supplies a default. That something is the
+# LimitRange, and the two are always deployed together for that reason.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: team-a-defaults
+  namespace: team-a
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: "1"
+        memory: 2Gi

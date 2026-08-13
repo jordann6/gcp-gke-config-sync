@@ -1,0 +1,8 @@
+# Copy from the bootstrap layer's backend_hcl output, then:
+#   terraform init -backend-config=backend.hcl
+#
+# State lives in the seed project, not the workload project, because the
+# workload project is what gets deleted on teardown.
+
+bucket = "jn-gitops-seed-a1b2c3-tfstate"
+prefix = "gke-config-sync/dev"

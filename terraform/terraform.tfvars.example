@@ -1,0 +1,45 @@
+# Copy to terraform.tfvars and fill in. The real file is gitignored.
+#
+#   gcloud organizations list                                    -> org_id
+#   gcloud billing accounts list                                 -> billing_account
+#   terraform output -state=../bootstrap/terraform.tfstate ...   -> seed_project_id
+#   curl -s https://api.ipify.org                                -> authorized_ip_ranges
+
+org_id          = "000000000000"
+billing_account = "0X0X0X-0X0X0X-0X0X0X"
+seed_project_id = "jn-gitops-seed-a1b2c3"
+
+admin_principal = "user:you@example.com"
+
+# Your current public IP as a /32. If your address changes, kubectl stops
+# reaching the API server and every command hangs until it times out. That is
+# the authorized network working, but it is worth knowing before you go looking
+# for a broken cluster.
+authorized_ip_ranges = ["203.0.113.10/32"]
+
+name_prefix = "jn-gitops"
+region      = "us-central1"
+zone        = "us-central1-a"
+
+# Makes the workload project ID unique: openssl rand -hex 3
+# Once set, keep it. Changing it renames the project and rebuilds the cluster.
+workload_name_suffix = "a1b2c3"
+
+# Point this at your fork if you are not syncing from the upstream repo. It has
+# to be reachable over plain HTTPS with no credential, because secret_type is
+# "none".
+sync_repo   = "https://github.com/jordann6/gcp-gke-config-sync"
+sync_branch = "main"
+sync_dir    = "config"
+
+# Start false so the reconciliation loop is visible. Act 3 of the demo flips it
+# to true and shows the same drift being refused instead of corrected.
+prevent_drift = false
+
+# null takes whatever the fleet feature currently ships. Pin only if you need a
+# specific version, and check what is on offer first:
+#   gcloud beta container fleet config-management version
+config_sync_version = null
+
+node_machine_type = "e2-standard-2"
+node_count        = 2

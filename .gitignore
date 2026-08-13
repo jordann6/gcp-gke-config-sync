@@ -1,0 +1,50 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+tfplan
+*.tfplan
+plan.json
+
+# Real values. Every one of these carries an org, billing, or account ID.
+*.tfvars
+!*.tfvars.example
+backend.hcl
+!backend.hcl.example
+
+# Credentials. Nothing in this repo should ever produce one of these, which is
+# the entire point of Workload Identity, but the ignore stays as a backstop.
+*.json.key
+service-account*.json
+application_default_credentials.json
+kubeconfig
+*.kubeconfig
+*.pem
+*.ppk
+
+# Diagram output is committed on purpose (docs/architecture.png). Scratch is not.
+*.dot
+.diagram-cache/
+
+# Rendered from terraform output. Project IDs and resource names, no secrets,
+# but it is generated state and does not belong in the repo.
+.demo.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# --- platform-guardrails ---
+!example.tfvars
+.env
+.envrc
+.checkov.json
+infracost.json

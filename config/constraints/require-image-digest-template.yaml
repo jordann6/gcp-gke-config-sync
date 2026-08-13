@@ -1,0 +1,74 @@
+# A ConstraintTemplate written by hand, rather than taken from the library.
+#
+# The library covers the common controls well and it does not cover this one.
+# The two objects together are the pattern worth knowing: a ConstraintTemplate
+# defines a new CRD and the Rego that backs it, and a Constraint of that new
+# kind is what turns it on with parameters. Templates are cluster-wide vocabulary;
+# constraints are policy.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequireimagedigest
+  annotations:
+    description: >-
+      Requires every container image to be pinned to a sha256 digest rather than
+      a tag.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequireImageDigest
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            exemptImages:
+              type: array
+              description: Image prefixes this constraint ignores.
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequireimagedigest
+
+        # A tag is a pointer, and on most registries it is a mutable one. The
+        # image that passed review and the image that runs are only guaranteed
+        # to be the same bytes if the reference is a digest. Artifact Registry
+        # with immutable_tags closes that gap for one registry; this closes it
+        # for every registry, including the ones nobody remembers approving.
+
+        exempt(image) {
+          prefix := input.parameters.exemptImages[_]
+          startswith(image, prefix)
+        }
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.containers[_]
+          not exempt(c.image)
+          not contains(c.image, "@sha256:")
+          msg := sprintf(
+            "container <%v> uses image <%v>, which is not pinned to a digest. Use registry/image@sha256:...",
+            [c.name, c.image],
+          )
+        }
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.initContainers[_]
+          not exempt(c.image)
+          not contains(c.image, "@sha256:")
+          msg := sprintf(
+            "init container <%v> uses image <%v>, which is not pinned to a digest.",
+            [c.name, c.image],
+          )
+        }
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.ephemeralContainers[_]
+          not exempt(c.image)
+          not contains(c.image, "@sha256:")
+          msg := sprintf(
+            "ephemeral container <%v> uses image <%v>, which is not pinned to a digest.",
+            [c.name, c.image],
+          )
+        }

@@ -1,0 +1,49 @@
+# Local gates. These run before a commit exists, which is the only point where
+# a secret is still cheap to remove. CI re-runs the same checks because local
+# hooks can be skipped with --no-verify.
+#
+# Install:  pre-commit install && pre-commit install --hook-type pre-push
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+        # Nearly every file under config/ is a multi-document manifest.
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.2
+    hooks:
+      # policy/fixtures/violations.tf is excluded from everything below except
+      # fmt. It is deliberately insecure Terraform whose entire job is to fail
+      # the conftest run, so pointing Checkov and tflint at it would produce a
+      # wall of findings that are the intended content of the file. It is never
+      # applied and no provider is ever initialized for it.
+      - id: terraform_fmt
+      - id: terraform_validate
+        exclude: ^policy/fixtures/
+      - id: terraform_tflint
+        exclude: ^policy/fixtures/
+      - id: terraform_checkov
+        exclude: ^policy/fixtures/
+        args:
+          - --args=--quiet
+          - --args=--compact
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck

@@ -1,0 +1,61 @@
+# Default deny, then allow back what is needed.
+#
+# Kubernetes networking is open by default: every pod can reach every other pod
+# in every namespace. A NetworkPolicy is only enforced if a plugin implements
+# it, which is why the cluster in gke.tf turns on Calico. Without that, these
+# objects exist, apply cleanly, and stop nothing, and there is no error to tell
+# you so.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# DNS has to be allowed back immediately. A namespace under default-deny egress
+# cannot resolve anything, and every failure inside it looks like a broken
+# application rather than a network policy. This is the single most common way a
+# first NetworkPolicy rollout goes wrong.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Pods in this namespace may talk to each other. Anything crossing the namespace
+# boundary needs its own policy naming both sides, which is the point: an
+# unwritten dependency between two teams stops working, visibly, instead of
+# quietly existing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}

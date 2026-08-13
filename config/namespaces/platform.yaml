@@ -1,0 +1,18 @@
+# The platform team's namespace. Holds shared tooling in a real cluster; here it
+# exists so that the constraints have more than one namespace to reason about,
+# and so the difference between a scoped policy and a global one is visible.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform
+  labels:
+    owner: platform-team
+    tier: platform
+    # Pod Security Admission, which is upstream Kubernetes and independent of
+    # Policy Controller. Two admission controllers with overlapping opinions is
+    # not redundancy, it is defense in depth against one of them being
+    # misconfigured. PSA is enforced by the API server itself and cannot be
+    # disabled by deleting a CRD.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

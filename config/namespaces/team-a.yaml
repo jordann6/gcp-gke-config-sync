@@ -1,0 +1,14 @@
+# A tenant namespace. Everything a team gets when they are onboarded is in this
+# repo under this name: the namespace, its RBAC, its quota, its network policy.
+# Onboarding team-b is a copy of five files and a pull request, which is the
+# entire argument for doing it this way.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-a
+  labels:
+    owner: team-a
+    tier: application
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

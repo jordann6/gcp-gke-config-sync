@@ -1,0 +1,43 @@
+# Where images are allowed to come from.
+#
+# This is the control that makes an image scanner worth having. Scanning the
+# registry you publish to proves nothing if a workload can pull straight from
+# Docker Hub, because the scanned artifact and the running artifact are
+# unrelated.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sAllowedRepos
+metadata:
+  name: approved-image-sources
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces:
+      - team-a
+      - platform
+  parameters:
+    repos:
+      # The registry host rather than the full repository path, and that is a
+      # real weakness worth stating plainly.
+      #
+      # The full path is
+      # us-central1-docker.pkg.dev/PROJECT_ID/jn-gitops-apps/, and PROJECT_ID
+      # contains a random suffix that only Terraform knows. Nothing in this
+      # directory is templated: Config Sync applies these files as written,
+      # which is what makes them reviewable and what stops them from carrying
+      # environment-specific values.
+      #
+      # So the prefix here approves any Artifact Registry repository in
+      # us-central1, in any project. That is broader than intended. The fix is
+      # Kustomize, which Config Sync runs automatically when it finds a
+      # kustomization.yaml, with the project ID patched in per environment. That
+      # is the right answer and it trades away the property that these files can
+      # be read literally, so it is deliberately not done here.
+      - "us-central1-docker.pkg.dev/"
+
+      # System and sample images. registry.k8s.io is the upstream Kubernetes
+      # registry, not Docker Hub, and the sample app pulls its pause image from
+      # it. Anything not in this list is refused, which includes docker.io.
+      - "registry.k8s.io/"

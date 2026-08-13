@@ -1,0 +1,31 @@
+# A privileged container has the host's capabilities. It can load kernel
+# modules, read every device, and reach the container runtime socket, which
+# means it can start a container as any identity the node holds. There is no
+# namespace boundary above it.
+#
+# K8sPSPPrivilegedContainer comes from the Policy Controller template library,
+# installed by the policycontroller feature in fleet.tf. The template is a CRD
+# definition plus Rego; this object is what instantiates it. Installing the
+# library enforces nothing on its own.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPPrivilegedContainer
+metadata:
+  name: deny-privileged-containers
+spec:
+  # deny refuses the write. The alternatives are dryrun, which records and
+  # admits, and warn, which returns a warning to the client and admits.
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    # An include list, not an exclude list.
+    #
+    # Exclude lists are how a constraint accidentally starts applying to a
+    # namespace that appears next month, which for a security control sounds
+    # like the safe direction and is not: it is how Policy Controller ends up
+    # blocking a GKE-managed system pod nobody knew was coming, on a cluster
+    # where the webhook is the thing preventing you from fixing it.
+    namespaces:
+      - team-a
+      - platform

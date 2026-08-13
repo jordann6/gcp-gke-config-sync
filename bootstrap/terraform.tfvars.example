@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars and fill in. The real file is gitignored.
+#
+#   gcloud organizations list        -> org_id
+#   gcloud billing accounts list     -> billing_account
+
+org_id          = "000000000000"
+billing_account = "0X0X0X-0X0X0X-0X0X0X"
+
+name_prefix           = "jn-gitops"
+region                = "us-central1"
+state_bucket_location = "US"
+
+# Leave false. Set true only when you are tearing the seed down for good and
+# accept losing the state history with it.
+force_destroy_state = false
