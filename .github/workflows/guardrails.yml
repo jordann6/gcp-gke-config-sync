@@ -35,18 +35,26 @@ jobs:
     uses: jordann6/platform-guardrails/.github/workflows/tf-ci.yml@v1
     with:
       terraform_dir: terraform
-      skip_policy: true
 
   bootstrap:
     uses: jordann6/platform-guardrails/.github/workflows/tf-ci.yml@v1
     with:
       terraform_dir: bootstrap
-      skip_policy: true
 
-  # skip_policy above turns off the shared AWS-shaped rule set. These are the
-  # GKE equivalents, and they run here rather than in the shared workflow
-  # because they are specific to this repo's failure modes.
-  policy:
+  # The guard on the guard.
+  #
+  # tf-ci.yml already runs conftest with --parser hcl2 --combine against the
+  # shared suite plus this repo's policy/ directory, so there is no hand-rolled
+  # conftest job here any more. What the shared workflow cannot do is prove that
+  # THIS repo's rules still match anything.
+  #
+  # A Rego suite does not fail loudly when it breaks, it goes vacuous. A rule
+  # whose first line stops matching the input shape returns no violations, and
+  # no violations is indistinguishable from a clean run. platform-guardrails
+  # guards its own shared suite this way in self-test.yml; this is the same
+  # guard for the rules that live here.
+  policy_fixture:
+    name: Policy is not vacuous
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,35 +64,17 @@ jobs:
           set -euo pipefail
           VERSION=0.56.0
           curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz" |
-            tar xz -C /usr/local/bin conftest
+            sudo tar -xz -C /usr/local/bin conftest
 
-      # --combine is not optional and its absence is silent.
-      #
-      # Without it, conftest evaluates each file on its own and sets input to
-      # that file's parsed document. The rules here start with
-      # `some file in input; file.contents.resource`, which is the shape
-      # conftest only produces when combining, so every rule matches nothing,
-      # returns no violations, and reports a confident pass. The run is green
-      # and the policy never executed.
-      #
-      # There is a negative fixture in policy/fixtures/ for exactly this: it is
-      # a Terraform file that must fail. If the policy ever goes vacuous again,
-      # that step turns red instead of everything turning green.
-      - name: conftest terraform
-        run: conftest test --policy policy --all-namespaces --combine terraform/*.tf
-
-      - name: conftest bootstrap
-        run: conftest test --policy policy --all-namespaces --combine bootstrap/*.tf
-
-      - name: Prove the policy is not vacuous
+      - name: The violating fixture must fail
         run: |
           set -euo pipefail
-          if conftest test --policy policy --all-namespaces --combine \
-               policy/fixtures/violations.tf >/dev/null 2>&1; then
-            echo "::error::the negative fixture PASSED, which means the rules are matching nothing"
+          if conftest test --parser hcl2 --combine \
+               --policy policy policy/fixtures/violations.tf >/dev/null 2>&1; then
+            echo "::error::The violating fixture PASSED, which means the rules are matching nothing."
             exit 1
           fi
-          echo "negative fixture correctly fails"
+          echo "Violating fixture was blocked as expected."
 
   # The gate on the directory the cluster actually reads.
   config:
