@@ -12,6 +12,12 @@ deletion under each.
 
 ![Architecture](docs/architecture.png)
 
+Two paths to the same namespace. Green: Config Sync pulls `config/` from Git and
+applies it, then puts back anything that drifts. Red: an operator applies
+something directly, and Policy Controller refuses it at admission before it
+lands. The cluster's only way out is Cloud NAT, and Artifact Registry is the
+one image source the constraints approve.
+
 **Cost:** roughly $1 for a full deploy, demo, and destroy cycle. Standing cost
 if left up is about $210 a month, and that is the number to pay attention to.
 **Teardown:** one `terraform destroy`, no organization-scoped leftovers, but
@@ -132,6 +138,33 @@ reads them back and finds the sample app, which pulls `registry.k8s.io/pause` by
 tag and is running right now. Promoting the constraint to `deny` is a one-word
 diff, and doing it without reading this first is how a policy rollout takes down
 a namespace on a Friday.
+
+## What the live cluster found
+
+1. **The demo was proving the wrong controller.** Act 4 asserted that Policy
+   Controller refused a privileged pod. It was refused by Pod Security
+   Admission, which is built into the API server and runs before any validating
+   webhook, so Gatekeeper was never consulted. Deleting the constraint would not
+   have changed the output, which means the act could not prove Policy
+   Controller worked at all. It now reports which layer answered, and Act 5
+   (an unapproved registry, which only Policy Controller checks) is the real
+   test.
+2. **The reconcile was faster than the narration claimed.** Act 2 blamed the
+   15-second poll for the delay. Observed latency was about 5 seconds, because
+   Config Sync watches the objects it manages. The poll interval bounds noticing
+   a change in Git, not a change in the cluster.
+3. **A missing plugin looked like a broken cluster.** Without
+   `gke-gcloud-auth-plugin` every `kubectl` call fails, and the sync wait loop
+   tolerates errors by design, so it showed as ten minutes of waiting followed by
+   "Config Sync never synced" against a healthy cluster. There is now a
+   preflight check.
+4. **The apply failed 15 minutes in.** Two `anthos*` APIs are prerequisites for
+   `google_gke_hub_feature`, and their absence surfaces only after the cluster is
+   already built. Both are now enabled up front.
+5. **"Bucket doesn't exist" meant "billing project doesn't exist."** A sticky
+   ADC quota project pointing at a deleted project made `terraform init` report a
+   missing state bucket. Details and the fix are under
+   [Deploying it](#if-terraform-init-says-the-state-bucket-does-not-exist).
 
 ## Deploying it
 

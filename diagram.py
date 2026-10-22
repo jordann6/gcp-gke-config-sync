@@ -89,7 +89,7 @@ with Diagram(
 
     # The gate. The operator's write reaches the webhook and stops there, which
     # is why the second edge has no arrowhead: nothing arrives.
-    operator >> Edge(color="#cf222e", style="bold", label="kubectl apply:\nprivileged pod,\nunapproved registry") >> policy
+    operator >> Edge(color="#cf222e", style="bold", label="kubectl apply:\nunapproved registry") >> policy
     policy >> Edge(
         color="#cf222e",
         style="dotted",
